@@ -303,9 +303,6 @@ Gen: cover from yajl_gen {
     clear: extern(yajl_gen_clear) func
 }
 
-getError : extern(yajl_get_error) func(Handle,Int,CString,UInt) -> CString
-
-
 SimpleParser: class {
     handle: Handle
     stack: ValueList
@@ -340,10 +337,7 @@ SimpleParser: class {
             parse(chars toString(), reader read(chars data, 0, BUFFER_SIZE))
             other append(chars)
         }
-        i := complete()
-        if(i != 0 as Status) {
-            getError(handle,1,other toCString(),other length()) toString() println()
-        }
+        complete()
     }
 
     complete: func -> Status {
