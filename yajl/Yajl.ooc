@@ -91,7 +91,12 @@ operator [] <T> (this: ValueList, index: Int, T: Class) -> T {
     this getValue(index, T)
 }
 
-Status: cover from Int
+Status: cover from Int {
+    toCString : extern(yajl_status_to_string) func -> CString
+    toString : func -> String {
+        this toCString() toString()
+    }
+}
 
 ParserConfig: cover from yajl_parser_config {
     allowComments, checkUTF8: extern UInt
@@ -121,6 +126,15 @@ _nullCallback: func (ctx: Pointer) -> Int {
 
 _booleanCallback: func (ctx: Pointer, value: Int) -> Int {
     ctx as ValueList add(Value<Bool> new(Bool, value ? true : false))
+    return -1
+}
+
+_numberCallback: func (ctx: Pointer, value: CString) -> Int {
+    if(value toString() contains?('.')) {
+        ctx as ValueList add(Value<Double> new(Double, value toString() toDouble()))
+    } else {
+        ctx as ValueList add(Value<Int> new(Int, value toString() toInt()))
+    }
     return -1
 }
 
@@ -210,8 +224,7 @@ _endArrayCallback: func (ctx: Pointer) -> Int {
 _callbacks: Callbacks
 _callbacks null_ = _nullCallback
 _callbacks boolean = _booleanCallback
-_callbacks integer = _intCallback
-_callbacks double_ = _doubleCallback
+_callbacks number = _numberCallback
 _callbacks string = _stringCallback
 _callbacks startMap = _startMapCallback
 _callbacks mapKey = _mapKeyCallback
@@ -290,6 +303,9 @@ Gen: cover from yajl_gen {
     clear: extern(yajl_gen_clear) func
 }
 
+getError : extern(yajl_get_error) func(Handle,Int,CString,UInt) -> CString
+
+
 SimpleParser: class {
     handle: Handle
     stack: ValueList
@@ -317,11 +333,17 @@ SimpleParser: class {
     }
 
     parseAll: func ~reader (reader: Reader) {
-        data : String = ""
+        BUFFER_SIZE := const 30
+        chars := Buffer new(BUFFER_SIZE)
+        other := Buffer new()
         while(reader hasNext?()) {
-            data += reader read()
+            parse(chars toString(), reader read(chars data, 0, BUFFER_SIZE))
+            other append(chars)
         }
-        parseAll(data)
+        i := complete()
+        if(i != 0 as Status) {
+            getError(handle,1,other toCString(),other length()) toString() println()
+        }
     }
 
     complete: func -> Status {
