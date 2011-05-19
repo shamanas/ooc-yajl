@@ -2,7 +2,6 @@ use yajl
 
 import structs/[ArrayList,HashMap]
 import io/Reader
-import text/Buffer
 
 Callbacks: cover from yajl_callbacks {
     null_: extern(yajl_null) Pointer
@@ -19,8 +18,8 @@ Callbacks: cover from yajl_callbacks {
 }
 
 JSONException: class extends Exception {
-    init: func ~withMsg (.msg) {
-        super(msg)
+    init: func ~withMsg (.message) {
+        super(message)
     }
 }
 
@@ -33,14 +32,13 @@ ValueMap: class extends HashMap<String, Value<Pointer>> {
 
     get: func ~typed <T> (index: String, T: Class) -> T {
         container := get(index)
-/*        if(!container type inheritsFrom?(T)) {
-            JSONException new("%s expected, got %s" format(T name, container type name)) throw()
-        }*/
         container value
     }
 
     getType: func (index: String) -> Class {
-        get(index) type
+        if(get(index) != null)
+            return get(index) type
+        null
     }
 
     putValue: func <T> (key: String, value: T) {
@@ -139,10 +137,10 @@ _doubleCallback: func (ctx: Pointer, value: Double) -> Int {
 /* TODO: Number callback! */
 
 _stringCallback: func (ctx: Pointer, value: const UChar*, len: UInt) -> Int {
-    s := String new(len)
+    s := gc_malloc(len) as Char*
     memcpy(s, value, len)
-    s[len] = 0
-    ctx as ValueList add(Value<String> new(String, s))
+    s[len] = '\0'
+    ctx as ValueList add(Value<String> new(String, Buffer new(s,len) toString()))
     return -1
 }
 
@@ -152,10 +150,10 @@ _startMapCallback: func (ctx: Pointer) -> Int {
 }
 
 _mapKeyCallback: func (ctx: Pointer, key: const UChar*, len: UInt) -> Int {
-    s := String new(len)
+    s := gc_malloc(len) as Char*
     memcpy(s, key, len)
-    s[len] = 0
-    ctx as ValueList add(Value<String> new(String, s))
+    s[len] = '\0'
+    ctx as ValueList add(Value<String> new(String, Buffer new(s,len) toString()))
     return -1
 }
 
@@ -175,7 +173,7 @@ _endMapCallback: func (ctx: Pointer) -> Int {
     hashmap := arr get(i) value as ValueMap
     arr get(i) complete = true
     i += 1
-    while(i < arr size()) {
+    while(i < arr getSize()) {
         key := arr get(i) value as String
         hashmap put(key, arr get(i + 1))
         arr removeAt(i) .removeAt(i)
@@ -202,7 +200,7 @@ _endArrayCallback: func (ctx: Pointer) -> Int {
     value := arr get(i) value as ValueList
     arr get(i) complete = true
     i += 1
-    while(i < arr size()) {
+    while(i < arr getSize()) {
         value add(arr get(i))
         arr removeAt(i)
     }
@@ -239,7 +237,7 @@ Handle: cover from yajl_handle {
 
 GenConfig: cover from yajl_gen_config {
     beautify: extern UInt
-    indentString: extern const String
+    indentString: extern const CString
 
     new: static func (.beautify, .indentString) -> This {
         genConfig: GenConfig
@@ -302,7 +300,7 @@ SimpleParser: class {
     }
 
     parse: func (text: String, length: UInt) -> Status {
-        yajl_parse(handle, text as UChar*, length)
+        yajl_parse(handle, text toCString() as UChar*, length)
     }
 
     parse: func ~lazy (text: String) -> Status {
@@ -319,11 +317,11 @@ SimpleParser: class {
     }
 
     parseAll: func ~reader (reader: Reader) {
-        BUFFER_SIZE := const 30
-        chars := String new(BUFFER_SIZE)
+        data : String = ""
         while(reader hasNext?()) {
-            parse(chars, reader read(chars, 0, BUFFER_SIZE))
+            data += reader read()
         }
+        parseAll(data)
     }
 
     complete: func -> Status {
@@ -332,15 +330,21 @@ SimpleParser: class {
     }
 
     getValue: func -> Value<Pointer> {
-        stack get(stack size() - 1) as Value<Pointer>
+        if(stack getSize() > 0) {
+            return stack get(0) as Value<Pointer>
+        }
+        null
     }
 
     getValue: func ~typed <T> (T: Class) -> T {
-        container := stack get(stack size() - 1)
-        if(!container type inheritsFrom?(T)) {
-            JSONException new("%s expected, got %s" format(T name, container type name)) throw()
+        if(stack getSize() > 0) {
+            container := stack get(0)
+            if(!container type inheritsFrom?(T)) {
+                JSONException new("%s expected, got %s" format(T name, container type name)) throw()
+            }
+            return container value as T
         }
-        container value as T
+        null
     }
 }
 
@@ -383,7 +387,7 @@ Value: class <T> {
             case ValueMap => {
                 gen genMapOpen()
                 for(key: String in value as ValueMap getKeys()) {
-                    gen genString(key, key length())
+                    gen genString(key toCString(), key length())
                     value as ValueMap get(key) _generate(gen)
                 }
                 gen genMapClose()
@@ -408,7 +412,7 @@ Value: class <T> {
                 gen genDouble(value as Double)
             }
             case String => {
-                gen genString(value as String, (value as String) length())
+                gen genString(value as String toCString(), (value as String) length())
             }
             /* TODO: what about NUMBER? */
         }
@@ -416,8 +420,11 @@ Value: class <T> {
 
     generate: func ~withConfig (beautify: Bool, indent: String) -> String {
         buf := Buffer new()
-        config := GenConfig new(beautify as UInt, indent)
-        gen := Gen new(func (buffer: Buffer, s: String, len: UInt) { buffer append(s, len) }, config&, _allocFuncs&, buf)
+        config := GenConfig new(beautify as UInt, indent toCString())
+        buffer: Buffer
+        s: CString
+        len: UInt // Euh... Duh?
+        gen := Gen new(||  buffer append(s, len) , config&, _allocFuncs&, buf)
         _generate(gen)
         buf toString()
     }
