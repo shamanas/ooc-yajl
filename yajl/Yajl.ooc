@@ -330,15 +330,15 @@ SimpleParser: class {
     }
 
     getValue: func -> Value<Pointer> {
-        if(stack getSize() > 0) {
-            return stack get(0) as Value<Pointer>
+        if(stack getSize() - 1 >= 0) {
+            return stack get(stack getSize() - 1) as Value<Pointer>
         }
         null
     }
 
     getValue: func ~typed <T> (T: Class) -> T {
-        if(stack getSize() > 0) {
-            container := stack get(0)
+        if(stack getSize() - 1 >= 0) {
+            container := stack get(stack getSize() - 1)
             if(!container type inheritsFrom?(T)) {
                 JSONException new("%s expected, got %s" format(T name, container type name)) throw()
             }
