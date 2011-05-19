@@ -332,10 +332,8 @@ SimpleParser: class {
     parseAll: func ~reader (reader: Reader) {
         BUFFER_SIZE := const 30
         chars := Buffer new(BUFFER_SIZE)
-        other := Buffer new()
         while(reader hasNext?()) {
             parse(chars toString(), reader read(chars data, 0, BUFFER_SIZE))
-            other append(chars)
         }
         complete()
     }
